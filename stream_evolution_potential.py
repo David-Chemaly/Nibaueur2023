@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import astropy.units as u
+from tqdm import tqdm
+import torch
 
 # Constants
 G     = 4.3e-3 * u.pc * u.M_sun**-1 * (u.km/u.s)**2 # pc M_sun^-1 (km/s)^2
@@ -167,7 +169,7 @@ def LeepFrog_Coupled_halo(a_fct, xN_old, yN_old, zN_old,xp_old,yp_old,zp_old, vx
 def LeepFrog_Coupled_all(a_fct, b_fct, xN_old, yN_old, zN_old,xp_old,yp_old,zp_old, vxp_old, vyp_old, vzp_old,vxN_old, vyN_old, vzN_old, dt):
 
     acc_p_old = a_fct(xp_old,yp_old,zp_old)
-    acc_N_old = a_fct(xN_old,yN_old,zN_old) + b_fct(xN_old,yN_old,zN_old,xp_old,yp_old,zp_old) #a_fct(x_old,y_old,z_old)# b_fct(x_old,y_old,z_old,xp,yp,zp)
+    acc_N_old = a_fct(xN_old,yN_old,zN_old) + b_fct(xN_old,yN_old,zN_old,xp_old,yp_old,zp_old) 
 
     acc_x_old_p = acc_p_old[0].to(u.km/u.s**2)
     acc_y_old_p = acc_p_old[1].to(u.km/u.s**2)
@@ -194,7 +196,7 @@ def LeepFrog_Coupled_all(a_fct, b_fct, xN_old, yN_old, zN_old,xp_old,yp_old,zp_o
     zN_new = zN_old + dt*vzN_half
 
     acc_p_new = a_fct(xp_new,yp_new,zp_new)
-    acc_N_new = a_fct(xN_old,yN_old,zN_old) + b_fct(xN_new,yN_new,zN_new,xp_new,yp_new,zp_new) #a_fct(x_old,y_old,z_old)# b_fct(x_old,y_old,z_old,xp,yp,zp)
+    acc_N_new = a_fct(xN_old,yN_old,zN_old) + b_fct(xN_new,yN_new,zN_new,xp_new,yp_new,zp_new) 
 
     acc_x_new_p = acc_p_new[0].to(u.km/u.s**2)
     acc_y_new_p = acc_p_new[1].to(u.km/u.s**2)
@@ -214,3 +216,64 @@ def LeepFrog_Coupled_all(a_fct, b_fct, xN_old, yN_old, zN_old,xp_old,yp_old,zp_o
     vzN_new = vzN_half + 0.5*dt*acc_z_new_N
 
     return xp_new,yp_new,zp_new,vxp_new,vyp_new,vzp_new,xN_new,yN_new,zN_new,vxN_new,vyN_new,vzN_new
+
+
+def phase(x,y,z,xp,yp,zp):
+    return np.sqrt(x**2+y**2+z**2) - np.sqrt(xp**2+yp**2+zp**2)
+
+def run(t_start, t_end, dt, halo, progenitor, pos_prog, pos_scat, vel_prog, vel_scat, N):
+
+    time    = np.arange(t_start + dt, t_end + dt, dt)
+
+    xp, yp, zp    = pos_prog[0] * u.kpc, pos_prog[1] * u.kpc, pos_prog[2] * u.kpc # kpc
+    x_scatter,y_scatter,z_scatter = pos_scat[0] * u.kpc, pos_scat[1] * u.kpc, pos_scat[2] * u.kpc, 
+
+    vxp, vyp, vzp = vel_prog[0] * u.km/u.s, vel_prog[1] * u.km/u.s, vel_prog[2] * u.km/u.s # km/s
+    vx_scatter, vy_scatter, vz_scatter = vel_scat[0] * u.km/u.s, vel_scat[1] * u.km/u.s, vel_scat[2] * u.km/u.s
+
+    all_pos_p = np.zeros([3,len(time)+2]) * u.kpc
+    all_vel_p = np.zeros([3,len(time)+2]) * u.km/ u.s
+    all_pos_p[:,0] = [xp,yp,zp] 
+    all_vel_p[:,0] = [vxp,vyp,vzp]
+
+    all_pos_N = np.zeros([3, N*len(time)+2]) * u.kpc
+    all_vel_N = np.zeros([3, N*len(time)+2]) * u.km/u.s
+    all_xhi_N = np.zeros(N*len(time)+2) * u.kpc
+
+    for t in tqdm(range(len(time)+1), leave=True):
+
+        xN, yN, zN    = xp + torch.randn(N)*x_scatter, yp + torch.randn(N)*y_scatter, zp + torch.randn(N)*z_scatter
+        vxN, vyN, vzN =  vxp + torch.randn(N)*vx_scatter, vyp + torch.randn(N)*vy_scatter, vzp + torch.randn(N)*vz_scatter
+
+        all_pos_N[:,int(t*N):int((t+1)*N)] = [xN,yN,zN] 
+        all_vel_N[:,int(t*N):int((t+1)*N)] = [vxN,vyN,vzN]
+
+
+        if progenitor == None:
+            xp,yp,zp,vxp,vyp,vzp,xN,yN,zN,vxN,vyN,vzN = LeepFrog_Coupled_halo(halo.acceleration, 
+                                                                            all_pos_N[0,:int((t+1)*N)], all_pos_N[1,:int((t+1)*N)], all_pos_N[2,:int((t+1)*N)],
+                                                                            xp,yp,zp, 
+                                                                            vxp,vyp, vzp,
+                                                                            all_vel_N[0,:int((t+1)*N)], all_vel_N[1,:int((t+1)*N)], all_vel_N[2,:int((t+1)*N)], 
+                                                                            dt * u.Gyr)
+        
+        elif progenitor != None:
+            xp,yp,zp,vxp,vyp,vzp,xN,yN,zN,vxN,vyN,vzN = LeepFrog_Coupled_all(halo.acceleration, 
+                                                                            progenitor.acceleration,
+                                                                            all_pos_N[0,:int((t+1)*N)], all_pos_N[1,:int((t+1)*N)], all_pos_N[2,:int((t+1)*N)],
+                                                                            xp,yp,zp, 
+                                                                            vxp,vyp, vzp,
+                                                                            all_vel_N[0,:int((t+1)*N)], all_vel_N[1,:int((t+1)*N)], all_vel_N[2,:int((t+1)*N)], 
+                                                                            dt * u.Gyr)
+            
+        all_pos_N[:,:int((t+1)*N)] = [xN,yN,zN] 
+        all_vel_N[:,:int((t+1)*N)] = [vxN,vyN,vzN]
+        all_xhi_N[:int((t+1)*N)] += phase(all_pos_N[0,:int((t+1)*N)],
+                                        all_pos_N[1,:int((t+1)*N)],
+                                        all_pos_N[2,:int((t+1)*N)],
+                                        xp,yp,zp)
+
+        all_pos_p[:,(t+1)] = [xp,yp,zp] 
+        all_vel_p[:,(t+1)] = [vxp,vyp,vzp]
+
+    return time, all_pos_p.value, all_vel_p.value, all_pos_N.value, all_vel_N.value, all_xhi_N.value

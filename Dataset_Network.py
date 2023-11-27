@@ -18,14 +18,20 @@ class NotSoBasicNN(nn.Module):
         super(NotSoBasicNN, self).__init__()
         self.lin1  = nn.Linear(1, 128)
         self.lin2  = nn.Linear(128, 256)
-        self.lin3  = nn.Linear(256, 128)
-        self.lin4  = nn.Linear(128, 2)
+        self.lin3  = nn.Linear(256, 512)
+        self.lin4  = nn.Linear(512, 512)
+        self.lin5  = nn.Linear(512, 256)
+        self.lin6  = nn.Linear(256, 128)
+        self.lin7  = nn.Linear(128, 2)
 
     def forward(self, x):
-        x = F.silu(self.lin1(x))
-        x = F.silu(self.lin2(x))
-        x = F.silu(self.lin3(x))
-        x = self.lin4(x)
+        x = F.relu(self.lin1(x))
+        x = F.relu(self.lin2(x))
+        x = F.relu(self.lin3(x))
+        x = F.relu(self.lin4(x))
+        x = F.relu(self.lin5(x))
+        x = F.relu(self.lin6(x))
+        x = self.lin7(x)
         return x
     
 class SimpleModel(nn.Module):
