@@ -4,19 +4,26 @@ import astropy.units as u
 from tqdm import tqdm
 import torch
 
-# Constants
-G     = 4.3e-3 * u.pc * u.M_sun**-1 * (u.km/u.s)**2 # pc M_sun^-1 (km/s)^2
-rho_c = 1.4e-7 * u.M_sun * u.pc**-3 # M_sun pc^-3
+from astropy.constants import G
+from astropy.cosmology import default_cosmology
+cosmo = default_cosmology.get()
+rho_c = (3 * cosmo.H(0.0) ** 2 / (8 * np.pi * G)).to(u.Msun / u.kpc ** 3)
+
+# # Constants
+# G     = 4.3e-3 * u.pc * u.M_sun**-1 * (u.km/u.s)**2 # pc M_sun^-1 (km/s)^2
+# rho_c = 1.4e-7 * u.M_sun * u.pc**-3 # M_sun pc^-3
 
 class NFW():
 
-    def __init__(self,M,c,q):
+    def __init__(self,M,c,qx,qy,qz):
         self.M = M
         self.c = c
-        self.q = q
+        self.qx = qx
+        self.qy = qy
+        self.qz = qz
 
     def radius_flatten(self,x,y,z):
-        return np.sqrt(x**2+y**2+(z/self.q)**2)
+        return np.sqrt((x/self.qx)**2+(y/self.qy)**2+(z/self.qz)**2)
     
     def A_NFW(self):
         return np.log(1+self.c) - self.c/(1+self.c)
@@ -34,34 +41,24 @@ class NFW():
     # Outputs potential in (km/s)^2
     def potential(self,x,y,z):
         r  = self.radius_flatten(x,y,z)
+
+        M200 =  self.M * self.A_NFW
+
         Rs = self.Rs_fct_RvirAndc()
-        A  = self.A_NFW()
-        return - G/r * self.M/A * np.log(1 + r/Rs)
+
+        return - G/r * self.M * np.log(1 + r/Rs)
     
     # Outputs acceleration in km/s^2
     def acceleration(self,x,y,z):
-        r  = self.radius_flatten(x,y,z)
-        Rs = self.Rs_fct_RvirAndc()
-        A  = self.A_NFW()
-        a_r = G*self.M/A * (r/(r + Rs) - np.log(1 + r/Rs))/r**3
+        r   = self.radius_flatten(x,y,z)
+        Rs  = self.Rs_fct_RvirAndc()
+        a_r = G*self.M * (r/(r + Rs) - np.log(1 + r/Rs))/r**3
 
-        a_x = a_r * x
-        a_y = a_r * y
-        a_z = a_r * z/self.q
+        a_x = a_r * x/self.qx
+        a_y = a_r * y/self.qy
+        a_z = a_r * z/self.qz
 
         return [a_x.value,a_y.value,a_z.value] * a_x.unit
-    
-def acc_fct_RsAndc(x,y,z):
-    M_vir = 4*np.pi/3*200*rho_c*(c*Rs)**3
-    r = np.sqrt(x**2+y**2+(z/q)**2)
-
-    a_r = G*M_vir/(np.log(1+c) - c/(1+c)) * (r/(r+Rs) - np.log(1+r/Rs))/r**3
-
-    a_x = a_r * x
-    a_y = a_r * y
-    a_z = a_r * z/q
-
-    return [a_x.value,a_y.value,a_z.value] * a_x.unit
 
 class Plummer():
 
@@ -75,6 +72,7 @@ class Plummer():
     def potential(self,x,y,z,xp,yp,zp):
         r = self.radius(x,y,z,xp,yp,zp)
         return -G*self.M/np.sqrt(r**2+self.a**2)
+    
     
     def acceleration(self,x,y,z,xp,yp,zp):
         r = self.radius(x,y,z,xp,yp,zp)
