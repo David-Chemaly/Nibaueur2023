@@ -60,8 +60,10 @@ class NFW():
         r   = self.radius_flatten(x,y,z)
         Rs  = self.Rs_fct_RvirAndc()
 
-        return G*self.M/(self.A_NFW()*r**3*(r+Rs)**2) * ( (2*r**2+4*Rs*r+2*Rs**2) * np.log(1 + r/Rs) - 3*r**2 - 2*Rs*r)
+        factor = G*self.M/(self.A_NFW()*r**3*(r+Rs)**2)
 
+        return factor * ( r*(2*Rs+3*r) - 2*(Rs+r)**2*np.log(1+r/Rs) )
+            
     def mass_enclosed(self,r):
         return self.M * (np.log(1 + r/self.Rs_fct_RvirAndc()) - r/(r + self.Rs_fct_RvirAndc()))
 
@@ -172,14 +174,6 @@ def LeepFrog_Coupled_halo(a_fct, xN_old, yN_old, zN_old,xp_old,yp_old,zp_old, vx
 
     return xp_new,yp_new,zp_new,vxp_new,vyp_new,vzp_new,xN_new,yN_new,zN_new,vxN_new,vyN_new,vzN_new
 
-# halo.acceleration, 
-# progenitor.acceleration,
-# all_pos_N[0,:int((t+1)*N)], all_pos_N[1,:int((t+1)*N)], all_pos_N[2,:int((t+1)*N)],
-# xp,yp,zp, 
-# vxp,vyp, vzp,
-# all_vel_N[0,:int((t+1)*N)], all_vel_N[1,:int((t+1)*N)], all_vel_N[2,:int((t+1)*N)], 
-# dt * u.Gyr)
-
 def LeepFrog_Coupled_all(a_fct, b_fct, xN_old, yN_old, zN_old,xp_old,yp_old,zp_old, vxp_old, vyp_old, vzp_old,vxN_old, vyN_old, vzN_old, dt):
 
     acc_p_old = a_fct(xp_old,yp_old,zp_old)
@@ -235,33 +229,20 @@ def LeepFrog_Coupled_all(a_fct, b_fct, xN_old, yN_old, zN_old,xp_old,yp_old,zp_o
 def phase(x,y,z,xp,yp,zp):
     return np.sqrt(x**2+y**2+z**2) - np.sqrt(xp**2+yp**2+zp**2)
 
-def L1L2(halo, progenitor, xp, yp, zp, N=1000, delta=10):
+def angular_velocity(x,y,z,vx,vy,vz):
     
-    r_prog = np.sqrt(xp**2+yp**2+zp**2).value
-    theta  = np.arccos(zp.value/r_prog)
-    phi    = np.arctan2(yp.value,xp.value)
+    r = np.sqrt(x**2+y**2+z**2) 
+    r_vect = np.array([x.value,y.value,z.value])*u.kpc 
+    v_vect = np.array([vx.value,vy.value,vz.value])*u.km/u.s 
+    L_vect = np.cross(r_vect, v_vect)
+    L = np.linalg.norm(L_vect)
 
-    all_r  = np.linspace(r_prog - delta, r_prog + delta, N)
+    return (L/r**2).to(1/u.Gyr)
+    
+def r_t_Gibbons(x,y,z,vx,vy,vz,halo,progenitor):
+    return (G.to(u.kpc**3/(u.Msun*u.Gyr**2)) * progenitor.M.to(u.Msun) / (angular_velocity(x,y,z,vx,vy,vz)**2 - halo.second_derivative_potential(x,y,z).to(1/u.Gyr**2)) )**(1/3)
 
-    all_x = all_r * np.sin(theta) * np.cos(phi)
-    all_y = all_r * np.sin(theta) * np.sin(phi)
-    all_z = all_r * np.cos(theta)
-
-    all_acc_halo = halo.acceleration(all_x *u.kpc, all_y *u.kpc, all_z *u.kpc).value
-    all_acc_prog = progenitor.acceleration(all_x *u.kpc, all_y *u.kpc, all_z *u.kpc, xp, yp, zp).value
-
-    idx_L = np.argmin(abs(np.linalg.norm(all_acc_halo, axis=0) - np.linalg.norm(all_acc_prog, axis=0)))
-    dif_L = N//2 - idx_L
-
-    L1 = np.array([all_x[N//2 - dif_L], all_y[N//2 - dif_L], all_z[N//2 - dif_L]])[:,None]
-    L2 = np.array([all_x[N//2 + dif_L], all_y[N//2 + dif_L], all_z[N//2 + dif_L]])[:,None]
-
-    return L1, L2
-
-def r_t(rp,halo,progenitor):
-    return rp * (progenitor.mass_enclosed(rp) / (3*halo.mass_enclosed(rp)) )**(1/3)
-
-def run(t_start, t_end, dt, halo, progenitor, pos_prog, vel_prog, vel_scat, N):
+def run(t_start, t_end, dt, halo, progenitor, pos_prog, vel_prog, vel_scat, N, f):
 
     time    = np.arange(t_start + dt, t_end + dt, dt)
 
@@ -279,9 +260,9 @@ def run(t_start, t_end, dt, halo, progenitor, pos_prog, vel_prog, vel_scat, N):
     all_vel_N = np.zeros([3, N*len(time)+2]) * u.km/u.s
     all_xhi_N = np.zeros([1, N*len(time)+2]) * u.kpc
     
-    save_all_pos_N = np.zeros([len(time)+1, 3, N*len(time)+2]) * u.kpc
-    save_all_vel_N = np.zeros([len(time)+1, 3, N*len(time)+2]) * u.km/u.s
-    save_all_xhi_N = np.zeros([len(time)+1, 1, N*len(time)+2]) * u.kpc
+    save_all_pos_N = np.zeros([3, len(time)+1, N*len(time)+2]) * u.kpc
+    save_all_vel_N = np.zeros([3,len(time)+1, N*len(time)+2]) * u.km/u.s
+    save_all_xhi_N = np.zeros([1, len(time)+1, N*len(time)+2]) * u.kpc
 
     all_rt = np.zeros(len(time)+1) * u.kpc
     all_L1 = np.zeros([3,len(time)+1]) * u.kpc
@@ -290,9 +271,9 @@ def run(t_start, t_end, dt, halo, progenitor, pos_prog, vel_prog, vel_scat, N):
     for t in tqdm(range(len(time)+1), leave=True):
 
         r_prog = np.sqrt(xp**2+yp**2+zp**2)
-        rt = r_t(r_prog, halo, progenitor)
+        rt = r_t_Gibbons(xp,yp,zp,vxp,vyp,vzp,halo,progenitor)*f
 
-        all_rt[t] = rt #* u.kpc
+        all_rt[t] = rt
         theta  = np.arccos(zp/r_prog)
         phi    = np.arctan2(yp,xp)
         xt1, yt1, zt1 = (r_prog - rt)*np.sin(theta)*np.cos(phi), (r_prog - rt)*np.sin(theta)*np.sin(phi), (r_prog - rt)*np.cos(theta)
@@ -307,29 +288,16 @@ def run(t_start, t_end, dt, halo, progenitor, pos_prog, vel_prog, vel_scat, N):
         xN, yN, zN    = torch.cat((xN_L1,xN_L2))*u.kpc, torch.cat((yN_L1,yN_L2))*u.kpc, torch.cat((zN_L1,zN_L2))*u.kpc
         vxN, vyN, vzN =  vxp + torch.randn(N)*vx_scatter, vyp + torch.randn(N)*vy_scatter, vzp + torch.randn(N)*vz_scatter
 
-        # x_scatter, y_scatter, z_scatter = [1, 1, 1] * u.kpc
-        # xN, yN, zN    = xp + torch.randn(N)*x_scatter, yp + torch.randn(N)*y_scatter, zp + torch.randn(N)*z_scatter
-        # vxN, vyN, vzN = vxp + torch.randn(N)*vx_scatter, vyp + torch.randn(N)*vy_scatter, vzp + torch.randn(N)*vz_scatter
-
         all_pos_N[:,int(t*N):int((t+1)*N)] = [xN,yN,zN] 
         all_vel_N[:,int(t*N):int((t+1)*N)] = [vxN,vyN,vzN]
 
-        if progenitor == None:
-            xp,yp,zp,vxp,vyp,vzp,xN,yN,zN,vxN,vyN,vzN = LeepFrog_Coupled_halo(halo.acceleration, 
-                                                                            all_pos_N[0,:int((t+1)*N)], all_pos_N[1,:int((t+1)*N)], all_pos_N[2,:int((t+1)*N)],
-                                                                            xp,yp,zp, 
-                                                                            vxp,vyp, vzp,
-                                                                            all_vel_N[0,:int((t+1)*N)], all_vel_N[1,:int((t+1)*N)], all_vel_N[2,:int((t+1)*N)], 
-                                                                            dt * u.Gyr)
-        
-        elif progenitor != None:
-            xp,yp,zp,vxp,vyp,vzp,xN,yN,zN,vxN,vyN,vzN = LeepFrog_Coupled_all(halo.acceleration, 
-                                                                            progenitor.acceleration,
-                                                                            all_pos_N[0,:int((t+1)*N)], all_pos_N[1,:int((t+1)*N)], all_pos_N[2,:int((t+1)*N)],
-                                                                            xp,yp,zp, 
-                                                                            vxp,vyp, vzp,
-                                                                            all_vel_N[0,:int((t+1)*N)], all_vel_N[1,:int((t+1)*N)], all_vel_N[2,:int((t+1)*N)], 
-                                                                            dt * u.Gyr)
+        xp,yp,zp,vxp,vyp,vzp,xN,yN,zN,vxN,vyN,vzN = LeepFrog_Coupled_all(halo.acceleration, 
+                                                                        progenitor.acceleration,
+                                                                        all_pos_N[0,:int((t+1)*N)], all_pos_N[1,:int((t+1)*N)], all_pos_N[2,:int((t+1)*N)],
+                                                                        xp,yp,zp, 
+                                                                        vxp,vyp, vzp,
+                                                                        all_vel_N[0,:int((t+1)*N)], all_vel_N[1,:int((t+1)*N)], all_vel_N[2,:int((t+1)*N)], 
+                                                                        dt * u.Gyr)
             
         # Update 
         all_pos_N[:,:int((t+1)*N)] = [xN,yN,zN] 
@@ -343,9 +311,9 @@ def run(t_start, t_end, dt, halo, progenitor, pos_prog, vel_prog, vel_scat, N):
         all_vel_p[:,(t+1)] = [vxp,vyp,vzp]
 
         # Save
-        save_all_pos_N[t,:,:int((t+1)*N)] = all_pos_N[:,:int((t+1)*N)].copy()
-        save_all_vel_N[t,:,:int((t+1)*N)] = all_vel_N[:,:int((t+1)*N)].copy()
-        save_all_xhi_N[t,:,:int((t+1)*N)] = all_xhi_N[:,:int((t+1)*N)].copy()
+        save_all_pos_N[:,t,:int((t+1)*N)] = all_pos_N[:,:int((t+1)*N)].copy()
+        save_all_vel_N[:,t,:int((t+1)*N)] = all_vel_N[:,:int((t+1)*N)].copy()
+        save_all_xhi_N[:,t,:int((t+1)*N)] = all_xhi_N[:,:int((t+1)*N)].copy()
 
 
 
