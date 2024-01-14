@@ -11,15 +11,14 @@ rho_c = (3 * cosmo.H(0.0) ** 2 / (8 * np.pi * G)).to(u.Msun / u.kpc ** 3)
 
 class NFW():
 
-    def __init__(self,M,c,qx,qy,qz):
+    def __init__(self,M,c,qxy,qxz):
         self.M = M
         self.c = c
-        self.qx = qx
-        self.qy = qy
-        self.qz = qz
+        self.qxy = qxy
+        self.qxz = qxz
 
     def radius_flatten(self,x,y,z):
-        return np.sqrt((x/self.qx)**2+(y/self.qy)**2+(z/self.qz)**2)
+        return np.sqrt(x**2+(y/self.qxy)**2+(z/self.qxz)**2)
     
     def A_NFW(self):
         return np.log(1+self.c) - self.c/(1+self.c)
@@ -49,9 +48,9 @@ class NFW():
 
         a_r = -G*self.M/(self.A_NFW()*r**2*(r+Rs)) * ( (r+Rs)*np.log(1 + r/Rs) - r)
 
-        a_x = a_r/r * x/self.qx
-        a_y = a_r/r * y/self.qy
-        a_z = a_r/r * z/self.qz
+        a_x = a_r/r * x
+        a_y = a_r/r * y/self.qxy
+        a_z = a_r/r * z/self.qxz
 
         return [a_x.value,a_y.value,a_z.value] * a_x.unit
     
