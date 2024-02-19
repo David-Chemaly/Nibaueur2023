@@ -1,62 +1,79 @@
 import numpy as np
-import pandas as pd
 
 # Ensure that the unwrapped angles are monotonically increasing
 def unwrap(angles):
-    arg_decrease = np.where( np.diff(angles) <= 0 )[0]
+    arg_decrease = np.where( np.diff(angles) < 0 )[0]
     for i in arg_decrease:
         angles[i+1:] += 2 * np.pi
 
     return angles
 
-# Get average of a column
-def average_column(x,y):
-    bins = np.linspace(np.min(x), np.max(x), 101)
+class average_orbit():
 
-    # Bin the x array
-    binned_x = np.digitize(x, bins)
+    def __init__(self, orbit_pos_p, orbit_pos_N, leading_arg, trailing_arg, n_orbits=11):
+        self.orbit_pos_p = orbit_pos_p
+        self.orbit_pos_N = orbit_pos_N
+        self.leading_arg = leading_arg
+        self.trailing_arg = trailing_arg
+        self.n_orbits = n_orbits
 
-    # Create a DataFrame for easy calculation
-    df = pd.DataFrame({'x': x, 'y': y, 'bin': binned_x})
+    
+    def get_average_column(self, x, y):
+        bins = np.linspace(x[0], x[-1], self.n_orbits)
 
-    # Group by the bin and calculate mean
-    average_y_per_bin = df.groupby('bin')['y'].mean()
+        xx = x.flatten()
+        yy = y.flatten()
 
-    return average_y_per_bin.to_numpy()
+        arg_keep = np.array(np.where(yy != 0))[0]
+        xx_keep  = xx[arg_keep]
+        yy_keep  = yy[arg_keep]
 
-# Get the track from the orbits
-def get_track_from_orbits(x_pos, y_pos, args):
+        bins = np.linspace(xx[0], xx[-1], 100)
 
-    first_theta = []
-    for index, i in enumerate(args):
-        x = x_pos[index, i//2:]
-        y = y_pos[index, i//2:]
-        first_theta.append(np.arctan2(y[0], x[0]))
-    adjust_theta = unwrap( first_theta - first_theta[0])
+        yy_mean = []
+        for index, i in enumerate(bins[:-1]):
+            arg_bin = np.where( (i <= xx_keep) & (xx_keep <=bins[index+1]))[0]
+            yy_mean.append( np.mean(yy_keep[arg_bin]) )
+        yy_mean = np.array(yy_mean)
+        xx_mean = bins[:-1] + np.diff(bins)/2
 
-    x_all = []
-    y_all = []
-    r_all = []
-    theta_all = []
-    for index, i in enumerate(args):
-        x = x_pos[index, i//2:]
-        y = y_pos[index, i//2:]
-        x_all.extend(x)
-        y_all.extend(y)
-        r = np.sqrt(x**2 + y**2)
-        theta = np.arctan2(y, x)
-        theta_shifted = theta - theta[0]
-        theta_unwrapped = unwrap( theta_shifted + adjust_theta[index])
+        return xx_mean, yy_mean
 
-        r_all.extend(r)
-        theta_all.extend(theta_unwrapped)
 
-    r_mean = average_column(theta_all, r_all)
-    theta_mean = np.linspace(np.min(theta_all), np.max(theta_all), len(r_mean))
-    theta_norm = (theta_mean + first_theta[0] + np.pi) % (2 * np.pi) - np.pi 
+    def get_polar_coord(self):
 
-    x_mean = r_mean*np.cos(theta_norm)
-    y_mean = r_mean*np.sin(theta_norm)
+        keep_arg    = np.linspace(0, len(self.leading_arg), self.n_orbits)
+        leading_idx = np.array(self.leading_arg)[keep_arg.astype(int)[:-1]]
 
-    return x_mean, y_mean
+        x_leading = self.orbit_pos_N[:,leading_idx, 0].T.value
+        y_leading = self.orbit_pos_N[:,leading_idx, 1].T.value
 
+        a = np.sign(x_leading[0, 0])
+        b = np.sign(y_leading[0, 1] - y_leading[0, 0])
+
+        x_leading_corrected = a * x_leading
+        y_leading_corrected = b * y_leading 
+
+        r_leading_corrected     = np.sqrt(x_leading_corrected**2 + y_leading_corrected**2) 
+        theta_leading_corrected = np.arctan2(y_leading_corrected, x_leading_corrected)
+
+        theta_leading_unwrapped = np.zeros(theta_leading_corrected.shape)
+        for i in range(self.n_orbits-1):
+            theta_leading_unwrapped[i] = unwrap(theta_leading_corrected[i])
+        for i in range(self.n_orbits-2):
+            if np.diag(theta_leading_unwrapped[:,leading_idx])[i+1] < np.diag(theta_leading_unwrapped[:,leading_idx])[i]:
+                theta_leading_unwrapped[i+1:] += 2*np.pi
+
+        theta_0 = theta_leading_unwrapped[0,0]
+        theta_leading_unwrapped -= theta_0
+
+        return r_leading_corrected, theta_leading_unwrapped, a, b, theta_0
+    
+    def forward(self):
+        r, theta, a, b, theta_0 = self.get_polar_coord()
+        theta_mean, r_mean = self.get_average_column(theta, r)
+
+        x_mean = r_mean * np.cos(theta_mean + theta_0) / a
+        y_mean = r_mean * np.sin(theta_mean + theta_0) / b
+
+        return x_mean, y_mean

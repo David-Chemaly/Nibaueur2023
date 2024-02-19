@@ -80,11 +80,11 @@ def run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN, 
 
     leading_arg  = []
     trailing_arg = []
-    for i in tqdm(range(step-1)):
+    for i in tqdm(range(step)):
 
         # Progenitor Phase Space Position
         wp = gd.PhaseSpacePosition(pos = pos_p,
-                                vel = vel_p)
+                                   vel = vel_p)
         
         if i % step_N == 0:
             j = i//step_N
@@ -101,23 +101,20 @@ def run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN, 
                 xt1, yt1, zt1 = (rp + rt)*np.sin(theta)*np.cos(phi), (rp + rt)*np.sin(theta)*np.sin(phi), (rp + rt)*np.cos(theta)
                 trailing_arg.append(i)
 
-            sig = np.sqrt( G*mass_plummer/(6*np.sqrt(rt**2+r_plummer**2)) ).to(u.km/u.s)
-
-            # New N initial conditions
+            # New N starting position
             pos_N[j] = np.array([xt1.value, yt1.value, zt1.value]) * u.kpc #  # tidal radius
-            vel_sign = vel_p/abs(vel_p)
+
+            # New N starting velocity
+            sig = np.sqrt( G*mass_plummer/(6*np.sqrt(rt**2+r_plummer**2)) ).to(u.km/u.s)
             if i%2 == 0:
                 vel_N[j] = vel_p - np.sign(vel_p)*abs(np.random.normal(0, sig.value)) * u.km/u.s # velocity dispersion
             else:
                 vel_N[j] = vel_p + np.sign(vel_p)*abs(np.random.normal(0, sig.value)) * u.km/u.s
 
-        if i == 0:
-            orbit_pos_N[i] = pos_N
-            orbit_vel_N[i] = vel_N
 
         # All N in Phase Space Position
-        wN = gd.PhaseSpacePosition(pos = pos_N[:j + 1].T,
-                                vel = vel_N[:j + 1].T)
+        wN = gd.PhaseSpacePosition(pos = pos_N[:j+1].T,
+                                   vel = vel_N[:j+1].T)
 
         # Define Plummer Potential
         pot_plummer  = gp.PlummerPotential(mass_plummer, r_plummer, units=galactic, origin=pos_p, R=None)
@@ -132,13 +129,13 @@ def run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN, 
         vel_p = orbit_p.v_xyz[:, -1]
 
         # Save Progenitor new Position and Velocity
-        orbit_pos_p[i+1] = pos_p
-        orbit_vel_p[i+1] = vel_p
+        orbit_pos_p[i] = pos_p
+        orbit_vel_p[i] = vel_p
 
         # Save N new Position and Velocity
-        orbit_pos_N[i+1] = pos_N
-        orbit_vel_N[i+1] = vel_N
-
+        orbit_pos_N[i] = pos_N
+        orbit_vel_N[i] = vel_N
+    
     return orbit_pos_p, orbit_pos_N, leading_arg, trailing_arg
 
 if __name__ == '__main__':
@@ -157,7 +154,7 @@ if __name__ == '__main__':
     pos_p = [-50, 5, 5] * u.kpc
     vel_p = [-10, 150, -10] * u.km/u.s
 
-    N  = 3999 # has to be smaller than step
+    N  = 4000 # has to be smaller than step
     dN = 1
 
     orbit_pos_p, orbit_pos_N, leading_arg, trailing_arg = run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN)
@@ -227,7 +224,7 @@ if __name__ == '__main__':
         ax.set_xlim(x_limits)
         ax.set_ylim(y_limits)
         ax.set_aspect('equal')
-        ax.set_title(f'{idx * time.value:.2f} Gyr')
+        ax.set_title(f'{idx * dt.to(u.Gyr).value:.2f} Gyr')
         ax.set_xlabel('X (kpc)')
         ax.set_ylabel('Y (kpc)')
 
