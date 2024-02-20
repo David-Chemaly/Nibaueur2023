@@ -141,7 +141,6 @@ def run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN, 
 if __name__ == '__main__':
 
     # Parameters
-
     mass_halo = 1e12 * u.Msun
     r_s = 10 * u.kpc
 
@@ -151,10 +150,10 @@ if __name__ == '__main__':
     time = 4 * u.Gyr
     dt   = 1 * u.Myr
 
-    pos_p = [-50, 5, 5] * u.kpc
-    vel_p = [-10, 150, -10] * u.km/u.s
+    pos_p = [50, -50, 0] * u.kpc
+    vel_p = [0, -175, 0] * u.km/u.s
 
-    N  = 4000 # has to be smaller than step
+    N  = 4000
     dN = 1
 
     orbit_pos_p, orbit_pos_N, leading_arg, trailing_arg = run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN)
@@ -212,8 +211,8 @@ if __name__ == '__main__':
 
         # Set limits
         if zoom == False:
-            x_limits = (-100,100)
-            y_limits = (-75,75)
+            x_limits = (-115,115)
+            y_limits = (-90,90)
         elif zoom == True:
             deltav = 15
             x_limits = (x[idx]-deltav,x[idx]+deltav) 
