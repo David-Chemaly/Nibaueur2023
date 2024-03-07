@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import sympy as sp
+from scipy.spatial.transform import Rotation
 
 import astropy.units as u
 from astropy.constants import G
@@ -59,13 +60,57 @@ def get_rt(wp, pot_NFW, mass_plummer):
     rt = ( G * mass_plummer / (angular_velocity**2 - d2pdr2) ).to(u.kpc**3) **(1/3)
     return rt
 
-def run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN, factor=1.5):
+class get_mat():
+
+    def __init__(self, a, b, c, aa, bb):
+
+        self.v1 = np.array([0, 0, 1])
+
+        v2 = np.array([a, b, c])
+        self.v2 = v2 / np.sum(v2**2)**.5
+
+        v3 = np.cross(self.v1, self.v2)
+        self.v3 = v3 / np.sum(v3**2)**.5
+
+        self.aa = aa
+        self.bb = bb
+    
+    def orientation(self):
+        
+        angle = np.arccos(np.sum(self.v1 * self.v2))
+
+        return Rotation.from_rotvec(angle * self.v3).as_matrix()
+    
+    def rotation(self):
+
+        z_new = - (self.aa * self.v2[0] + self.bb * self.v2[1]) / self.v2[2]
+        v_new = np.array([self.aa, self.bb, z_new])
+
+        v_norm = v_new / np.sum(v_new**2)**.5
+
+        new_angle = np.arccos(np.sum(v_norm*self.v3)) 
+
+        return Rotation.from_rotvec(new_angle * self.v2).as_matrix()
+    
+def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, factor=1.5):
+
+    # Rotate
+    if alpha*beta*charlie*aa*bb != 0:
+        rot_mat = get_mat(alpha, beta, charlie, aa, bb)
+        R_orientation = rot_mat.orientation()
+        R_rotation    = rot_mat.rotation()
+    else:
+        R_orientation = np.eye(3)
+        R_rotation    = np.eye(3)
 
     # Define Main Halo Potential
-    pot_NFW = gp.NFWPotential(mass_halo, r_s, a=1, b=1, c=1, units=galactic, origin=None, R=None)
+    pot_NFW = gp.NFWPotential(mass_halo, r_s, a=1, b=q_xy, c=q_xz, units=galactic, origin=None, R=R_rotation@R_orientation)
 
-    step = int(time/dt)
-    step_N = int(step/N)
+    step   = int(time/dt)
+    if N !=0:
+        step_N = int(step/N)
+    else:
+        step_N = int(step/(N+1))
 
     orbit_pos_p = np.zeros((step, 3)) * u.kpc
     orbit_vel_p = np.zeros((step, 3)) 
@@ -80,21 +125,24 @@ def run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN, 
 
     leading_arg  = []
     trailing_arg = []
+
+    counter = 0
     for i in tqdm(range(step)):
 
         # Progenitor Phase Space Position
         wp = gd.PhaseSpacePosition(pos = pos_p,
                                    vel = vel_p)
         
-        if i % step_N == 0:
+        if i % step_N == 0 and N != 0:
             j = i//step_N
 
-            rt     = get_rt(wp, pot_NFW, mass_plummer) * factor
+            no_rot_NFW = gp.NFWPotential(mass_halo, r_s, a=1, b=q_xy, c=q_xz, units=galactic, origin=None, R=None)
+            rt     = get_rt(wp, no_rot_NFW, mass_plummer) * factor
             rp     = np.linalg.norm( wp.xyz )
             theta  = np.arccos(wp.z/rp)
             phi    = np.arctan2(wp.y,wp.x)
 
-            if i%2 == 0:
+            if counter%2 == 0:
                 xt1, yt1, zt1 = (rp - rt)*np.sin(theta)*np.cos(phi), (rp - rt)*np.sin(theta)*np.sin(phi), (rp - rt)*np.cos(theta)
                 leading_arg.append(i)
             else:
@@ -106,35 +154,38 @@ def run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN, 
 
             # New N starting velocity
             sig = np.sqrt( G*mass_plummer/(6*np.sqrt(rt**2+r_plummer**2)) ).to(u.km/u.s)
-            if i%2 == 0:
+            if counter%2 == 0:
                 vel_N[j] = vel_p - np.sign(vel_p)*abs(np.random.normal(0, sig.value)) * u.km/u.s # velocity dispersion
             else:
                 vel_N[j] = vel_p + np.sign(vel_p)*abs(np.random.normal(0, sig.value)) * u.km/u.s
 
-
-        # All N in Phase Space Position
-        wN = gd.PhaseSpacePosition(pos = pos_N[:j+1].T,
-                                   vel = vel_N[:j+1].T)
-
-        # Define Plummer Potential
-        pot_plummer  = gp.PlummerPotential(mass_plummer, r_plummer, units=galactic, origin=pos_p, R=None)
-        pot_combined = pot_NFW + pot_plummer
-        orbit_N = gp.Hamiltonian(pot_combined).integrate_orbit(wN, dt=dt, n_steps=1)
-        pos_N[:j+1] = orbit_N.xyz[:, -1].T
-        vel_N[:j+1] = orbit_N.v_xyz[:, -1].T
-        
-        # Progenitor new Position and Velocity
-        orbit_p = gp.Hamiltonian(pot_NFW).integrate_orbit(wp, dt=dt, n_steps=1)
-        pos_p = orbit_p.xyz[:, -1]
-        vel_p = orbit_p.v_xyz[:, -1]
+            counter += 1
 
         # Save Progenitor new Position and Velocity
         orbit_pos_p[i] = pos_p
         orbit_vel_p[i] = vel_p
 
-        # Save N new Position and Velocity
-        orbit_pos_N[i] = pos_N
-        orbit_vel_N[i] = vel_N
+        if N != 0:
+
+            # Save N new Position and Velocity
+            orbit_pos_N[i] = pos_N
+            orbit_vel_N[i] = vel_N
+
+            # All N in Phase Space Position
+            wN = gd.PhaseSpacePosition(pos = pos_N[:j+1].T,
+                                    vel = vel_N[:j+1].T)
+
+            # Define Plummer Potential
+            pot_plummer  = gp.PlummerPotential(mass_plummer, r_plummer, units=galactic, origin=pos_p, R=None)
+            pot_combined = pot_NFW + pot_plummer
+            orbit_N = gp.Hamiltonian(pot_combined).integrate_orbit(wN, dt=dt, n_steps=1)
+            pos_N[:j+1] = orbit_N.xyz[:, -1].T
+            vel_N[:j+1] = orbit_N.v_xyz[:, -1].T
+        
+        # Progenitor new Position and Velocity
+        orbit_p = gp.Hamiltonian(pot_NFW).integrate_orbit(wp, dt=dt, n_steps=1)
+        pos_p = orbit_p.xyz[:, -1]
+        vel_p = orbit_p.v_xyz[:, -1]
     
     return orbit_pos_p, orbit_pos_N, leading_arg, trailing_arg
 
@@ -143,20 +194,24 @@ if __name__ == '__main__':
     # Parameters
     mass_halo = 1e12 * u.Msun
     r_s = 10 * u.kpc
+    q_xy = 1
+    q_xz = 1
+
+    alpha, beta, charlie = 0.1, 0.1, 0
+    aa, bb = 0.1, -1.3
 
     mass_plummer = 1e8 * u.Msun
     r_plummer = 1 * u.kpc
 
-    time = 4 * u.Gyr
+    time = 1 * u.Gyr
     dt   = 1 * u.Myr
 
-    pos_p = [50, -50, 0] * u.kpc
-    vel_p = [0, -175, 0] * u.km/u.s
+    pos_p = [-50, 0, 0] * u.kpc
+    vel_p = [0, 225, 0] * u.km/u.s
 
-    N  = 4000
-    dN = 1
+    N  = 1000
 
-    orbit_pos_p, orbit_pos_N, leading_arg, trailing_arg = run(mass_halo, r_s, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, dN)
+    orbit_pos_p, orbit_pos_N, leading_arg, trailing_arg = run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N)
 
     # plt.figure(figsize=(10,5))
     # plot_step = 4
@@ -179,7 +234,6 @@ if __name__ == '__main__':
     #         plt.xlabel('kpc')
     #     plt.axis('equal')
     # plt.show()
-
 
 
     axis_1 = 0
