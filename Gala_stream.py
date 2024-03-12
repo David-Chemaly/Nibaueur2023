@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import sympy as sp
 from scipy.spatial.transform import Rotation
+from sklearn.preprocessing import minmax_scale
 
 import astropy.units as u
 from astropy.constants import G
@@ -25,6 +26,11 @@ from matplotlib.animation import FuncAnimation, FFMpegWriter
 from IPython.display import HTML
 
 # Functions
+
+def phase(pos_N, pos_p):
+    x, y, z = pos_N[:,0], pos_N[:,1], pos_N[:,2]
+    xp, yp, zp = pos_p[0], pos_p[1], pos_p[2]
+    return np.sqrt(x**2+y**2+z**2) - np.sqrt(xp**2+yp**2+zp**2)
 
 def get_Jacobian(a,b,c):
     # Define the symbols for Cartesian and Spherical coordinates
@@ -92,7 +98,7 @@ class get_mat():
 
         return Rotation.from_rotvec(new_angle * self.v2).as_matrix()
     
-def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, factor=1.5):
+def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N, factor=1.1):
 
     # Rotate
     if alpha*beta*charlie*aa*bb != 0:
@@ -122,9 +128,11 @@ def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, 
 
     orbit_pos_N = np.zeros((step, N, 3)) * u.kpc
     orbit_vel_N = np.zeros((step, N, 3)) * u.km/u.s
+    orbit_xhi_N = np.zeros((N, 1)) * u.kpc
 
-    leading_arg  = []
-    trailing_arg = []
+    arg = []
+    # leading_arg  = []
+    # trailing_arg = []
 
     counter = 0
     for i in tqdm(range(step)):
@@ -144,10 +152,11 @@ def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, 
 
             if counter%2 == 0:
                 xt1, yt1, zt1 = (rp - rt)*np.sin(theta)*np.cos(phi), (rp - rt)*np.sin(theta)*np.sin(phi), (rp - rt)*np.cos(theta)
-                leading_arg.append(i)
+                # leading_arg.append(i)
             else:
                 xt1, yt1, zt1 = (rp + rt)*np.sin(theta)*np.cos(phi), (rp + rt)*np.sin(theta)*np.sin(phi), (rp + rt)*np.cos(theta)
-                trailing_arg.append(i)
+                # trailing_arg.append(i)
+            arg.append(i)
 
             # New N starting position
             pos_N[j] = np.array([xt1.value, yt1.value, zt1.value]) * u.kpc #  # tidal radius
@@ -171,6 +180,8 @@ def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, 
             orbit_pos_N[i] = pos_N
             orbit_vel_N[i] = vel_N
 
+            orbit_xhi_N[:int(i+1), 0] += -phase(orbit_pos_N[i,:int(i+1)], pos_p)
+        
             # All N in Phase Space Position
             wN = gd.PhaseSpacePosition(pos = pos_N[:j+1].T,
                                     vel = vel_N[:j+1].T)
@@ -187,7 +198,10 @@ def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, 
         pos_p = orbit_p.xyz[:, -1]
         vel_p = orbit_p.v_xyz[:, -1]
     
-    return orbit_pos_p, orbit_pos_N, leading_arg, trailing_arg
+
+    gamma = minmax_scale(orbit_xhi_N[:,0].value, feature_range=(-1, 1))
+
+    return orbit_pos_p, orbit_pos_N, gamma, arg # leading_arg, trailing_arg
 
 if __name__ == '__main__':
 
