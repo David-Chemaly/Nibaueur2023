@@ -9,7 +9,20 @@ def unwrap(angles):
 
     return angles
 
-def get_average_column(x, y, n_bins=100):
+def histedges_equalN(x, nb_bin):
+    """
+    Creates bins containing (approximately) the same number of points in each bin.
+    Input: x (array of float): values for which you want to get the bins containing the same number of points
+           nb_bins (int): number of bins you want
+    Output: bins (array of float): values of the edges of the bins that contain approximately the same number of points
+    """
+    nb_pt = len(x)
+    bins = np.interp(np.linspace(0, nb_pt, nb_bin + 1),
+                     np.arange(nb_pt),
+                     np.sort(x))
+    return bins
+
+def get_average_column(x, y, type_bins='constant', n_bins=100):
     xx = x.flatten()
     yy = y.flatten()
 
@@ -17,12 +30,15 @@ def get_average_column(x, y, n_bins=100):
     xx_keep  = xx[arg_keep]
     yy_keep  = yy[arg_keep]
 
-    bins = np.linspace(xx[0], xx.max(), n_bins)
+    if type_bins == 'linear':
+        bins = np.linspace(xx[0], xx.max(), n_bins + 1)
+    elif type_bins == 'constant':
+        bins = histedges_equalN(xx_keep, n_bins)
 
     yy_mean = []
     for index, i in enumerate(bins[:-1]):
         arg_bin = np.where( (i <= xx_keep) & (xx_keep <=bins[index+1]))[0]
-        yy_mean.append( np.mean(yy_keep[arg_bin]) )
+        yy_mean.append( np.median(yy_keep[arg_bin]) )
     yy_mean = np.array(yy_mean)
     xx_mean = bins[:-1] + np.diff(bins)/2
 
@@ -35,10 +51,11 @@ def get_average_column(x, y, n_bins=100):
 
 class average_stream():
 
-    def __init__(self, stream_pos_N, gamma, n_bins=100):
+    def __init__(self, stream_pos_N, gamma, type_bins='constant', n_bins=100):
         self.stream_pos_N = stream_pos_N
         self.gamma  = gamma
         self.n_bins = n_bins
+        self.type_bins = type_bins
 
     def forward(self):
 
@@ -50,15 +67,10 @@ class average_stream():
         x = ordered_stream_pos_N[:,0]
         y = ordered_stream_pos_N[:,1]
 
-        r = np.sqrt(x**2 + y**2)
-        theta   = np.arctan2(y, x)
+        mean_gamma, mean_x = get_average_column(ordered_gamma, x.value, self.type_bins, self.n_bins)
 
-        mean_gamma, mean_r = get_average_column(ordered_gamma, r.value, self.n_bins)
-
-        f_theta = interp1d(ordered_gamma, theta)
-        mean_theta = f_theta(mean_gamma)
-
-        mean_x, mean_y = mean_r * np.cos(mean_theta), mean_r * np.sin(mean_theta)
+        f_y = interp1d(ordered_gamma, y)
+        mean_y = f_y(mean_gamma)
 
         return mean_x, mean_y
 

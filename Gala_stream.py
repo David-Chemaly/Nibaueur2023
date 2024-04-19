@@ -129,10 +129,11 @@ def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, 
     orbit_pos_N = np.zeros((step, N, 3)) * u.kpc
     orbit_vel_N = np.zeros((step, N, 3)) * u.km/u.s
     orbit_xhi_N = np.zeros((N, 1)) * u.kpc
+    orbit_rt_N  = np.zeros((N, 1)) * u.kpc
 
     arg = []
-    # leading_arg  = []
-    # trailing_arg = []
+    leading_arg  = []
+    trailing_arg = []
 
     counter = 0
     for i in tqdm(range(step)):
@@ -143,19 +144,23 @@ def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, 
         
         if i % step_N == 0 and N != 0:
             j = i//step_N
-
             no_rot_NFW = gp.NFWPotential(mass_halo, r_s, a=1, b=q_xy, c=q_xz, units=galactic, origin=None, R=None)
             rt     = get_rt(wp, no_rot_NFW, mass_plummer) * factor
+            orbit_rt_N[i] = rt
+
+            # if rt > 3*r_plummer:
+            #     rt = 0
+
             rp     = np.linalg.norm( wp.xyz )
             theta  = np.arccos(wp.z/rp)
             phi    = np.arctan2(wp.y,wp.x)
 
             if counter%2 == 0:
                 xt1, yt1, zt1 = (rp - rt)*np.sin(theta)*np.cos(phi), (rp - rt)*np.sin(theta)*np.sin(phi), (rp - rt)*np.cos(theta)
-                # leading_arg.append(i)
+                leading_arg.append(i)
             else:
                 xt1, yt1, zt1 = (rp + rt)*np.sin(theta)*np.cos(phi), (rp + rt)*np.sin(theta)*np.sin(phi), (rp + rt)*np.cos(theta)
-                # trailing_arg.append(i)
+                trailing_arg.append(i)
             arg.append(i)
 
             # New N starting position
@@ -181,6 +186,7 @@ def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, 
             orbit_vel_N[i] = vel_N
 
             orbit_xhi_N[:int(i+1), 0] += -phase(orbit_pos_N[i,:int(i+1)], pos_p)
+            # orbit_rt_N[i] = rt
         
             # All N in Phase Space Position
             wN = gd.PhaseSpacePosition(pos = pos_N[:j+1].T,
@@ -201,54 +207,36 @@ def run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, 
 
     gamma = minmax_scale(orbit_xhi_N[:,0].value, feature_range=(-1, 1))
 
-    return orbit_pos_p, orbit_pos_N, gamma, arg # leading_arg, trailing_arg
+    return orbit_pos_p, orbit_pos_N, gamma, arg, leading_arg, trailing_arg, orbit_rt_N
 
 if __name__ == '__main__':
 
     # Parameters
     mass_halo = 1e12 * u.Msun
-    r_s = 10 * u.kpc
+    r_s = 15 * u.kpc
     q_xy = 1
     q_xz = 1
 
-    alpha, beta, charlie = 0.1, 0.1, 0
-    aa, bb = 0.1, -1.3
+    alpha, beta, charlie = 1, 1, 0
+    aa, bb = 1, 1
 
     mass_plummer = 1e8 * u.Msun
     r_plummer = 1 * u.kpc
 
-    time = 1 * u.Gyr
+    time = 4 * u.Gyr
     dt   = 1 * u.Myr
 
-    pos_p = [-50, 0, 0] * u.kpc
-    vel_p = [0, 225, 0] * u.km/u.s
+    pos_p = [-70, 0, 0] * u.kpc
+    vel_p = [0, 175, 0] * u.km/u.s
 
-    N  = 1000
+    N  = 4000
 
-    orbit_pos_p, orbit_pos_N, leading_arg, trailing_arg = run(mass_halo, r_s, q_xy, q_xz, alpha, beta, charlie, aa, bb, mass_plummer, r_plummer, time, dt, pos_p, vel_p, N)
-
-    # plt.figure(figsize=(10,5))
-    # plot_step = 4
-    # plot_time = np.linspace(0, time.value, plot_step)
-    # for i in range(len(plot_time)):
-    #     plt.subplot(2,2,i+1)
-    #     idx = int(time/dt)//plot_step * (i+1) - 1
-    #     plt.title(f'{time.value/plot_step * (i+1):.2f} Gyr')
-    #     plt.scatter(orbit_pos_p[:idx, 0], orbit_pos_p[:idx, 1], s=1, c='k')
-    #     plt.scatter(orbit_pos_N[idx, leading_arg, 0], orbit_pos_N[idx, leading_arg, 1], s=1, c='r', label = 'Leading')
-    #     plt.scatter(orbit_pos_N[idx, trailing_arg, 0], orbit_pos_N[idx, trailing_arg, 1], s=1, c='b', label = 'Trailing')
-    #     plt.scatter(0,0,color='orange', label = 'Center')
-    #     plt.scatter(orbit_pos_p[0,0],orbit_pos_p[0,1],color='g', label = 'Start')
-    #     plt.scatter(orbit_pos_p[idx,0],orbit_pos_p[idx,1],color='k', label = 'End')
-    #     if i == 0:
-    #         plt.legend()
-    #     if i == 0 or i == 2:
-    #         plt.ylabel('kpc')
-    #     if i == 2 or i == 3:
-    #         plt.xlabel('kpc')
-    #     plt.axis('equal')
-    # plt.show()
-
+    orbit_pos_p, orbit_pos_N, gamma, arg, leading_arg, trailing_arg, orbit_rt_N = run(mass_halo, r_s, q_xy, q_xz, 
+                                                                                      alpha, beta, charlie, aa, bb, 
+                                                                                      mass_plummer, r_plummer, 
+                                                                                      time, dt, 
+                                                                                      pos_p, vel_p, 
+                                                                                      N)
 
     axis_1 = 0
     axis_2 = 1
@@ -261,7 +249,7 @@ if __name__ == '__main__':
     num_frames = 100
     def generate_data(frame_number):
         idx = np.linspace(0, int(time/dt)-1, num_frames, dtype=int)[frame_number]
-        return orbit_pos_N[idx, :, :]
+        return orbit_pos_N[idx, :, :], orbit_rt_N[idx, 0]
 
     def update(frame_number):
 
@@ -273,7 +261,7 @@ if __name__ == '__main__':
         y = orbit_pos_p[:,axis_2]
 
         # Stream
-        data = generate_data(frame_number)
+        data, here_rt = generate_data(frame_number)
         xN = data[:,axis_1]
         yN = data[:,axis_2]
 
@@ -296,12 +284,15 @@ if __name__ == '__main__':
         ax.set_ylabel('Y (kpc)')
 
         im1 = ax.plot(x, y, label='Orbit')
-        im2 = ax.scatter(xN[leading_arg], yN[leading_arg], color='orange', s=1, label='Leading')
-        im3 = ax.scatter(xN[trailing_arg], yN[trailing_arg], color='b', s=1, label='Trailing')
+        im2 = ax.scatter(xN[arg], yN[arg], color='b', s=1, label='Stream')
+        # im2 = ax.scatter(xN[leading_arg], yN[leading_arg], color='orange', s=1, label='Leading')
+        # im3 = ax.scatter(xN[trailing_arg], yN[trailing_arg], color='b', s=1, label='Trailing')
 
-        im4 = ax.scatter(0, 0, color='k', label='Center')
-        im5 = ax.scatter(x[0], y[0], color='g', label='Start')
-        im6 = ax.scatter(x[-1], y[-1], color='r', label='End')
+        im3 = ax.scatter(0, 0, color='k', label='Center')
+        im4 = ax.scatter(x[0], y[0], color='g', label='Start')
+        im5 = ax.scatter(x[-1], y[-1], color='r', label='End')
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+        im6 = ax.text(0.05, 0.95, f'r$_t$ = {here_rt:.02f}', transform=plt.gca().transAxes, fontsize=14, verticalalignment='top', bbox=props)
 
         ax.legend(loc='upper right')
 
@@ -311,6 +302,6 @@ if __name__ == '__main__':
     # Create the animation
     anim = FuncAnimation(fig, update, frames=num_frames, blit=True)
     writervideo = FFMpegWriter(fps=10) 
-    anim.save('./animation.mp4', writer=writervideo)
+    anim.save('./animation_lowsig.mp4', writer=writervideo)
     plt.show()
 
